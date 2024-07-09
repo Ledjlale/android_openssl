@@ -11,15 +11,12 @@ BUILD_DIR=$(pwd)
 # Comment out the line for any configuration you don't want to build
 declare -a params=(
     ''
-    'no-asm'
 )
 declare -A ssl_versions_output_dir=(
-    ["ssl_1.1"]="1.1*"
     ["ssl_3"]="3*"
 )
 declare -A ssl_versions_ndk=(
-    ["1.1.1u"]="$HOME/android/ndk/21.4.7075529"
-    ["3.1.1"]="$HOME/android/ndk/25.2.9519653"
+    ["3.1.6"]="$OPENSSL_NDK"
 )
 declare -A architectures=(
     ["x86_64"]="x86_64"
@@ -32,7 +29,7 @@ download_ssl_version() {
     ssl_version=$1
     echo "Downloading OpenSSL $ssl_version"
     if [ ! -f "openssl-$ssl_version.tar.gz" ]; then
-        wget -q --show-progress "https://www.openssl.org/source/openssl-$ssl_version.tar.gz"
+        wget -q "https://www.openssl.org/source/openssl-$ssl_version.tar.gz"
     fi
 }
 
@@ -144,32 +141,34 @@ for param in "${params[@]}"; do
             echo "Build $ssl_version"
             for arch in "${!architectures[@]}"; do
                 qt_arch="${architectures[$arch]}"
-                extract_package $qt_arch $version_out_dir $ssl_version
-                pushd "openssl-$ssl_version" || exit 1
+                if [ "${qt_arch}" == "${BUILD_FOR_ABI}" ]; then
+		        extract_package $qt_arch $version_out_dir $ssl_version
+		        pushd "openssl-$ssl_version" || exit 1
 
-                log_file="build_${arch}_${ssl_version}.log"
-                ndk="${ssl_versions_ndk[$ssl_version]}"
-                configure_ssl "${ndk}" "${param}" ${ssl_version} ${version_out_dir} ${arch} ${log_file}
+		        log_file="build_${arch}_${ssl_version}.log"
+		        ndk="${ssl_versions_ndk[$ssl_version]}"
+		        configure_ssl "${ndk}" "${param}" ${ssl_version} ${version_out_dir} ${arch} ${log_file}
 
-                if [ "$arch" == "arm64" ] && [ ! -d "../$version_out_dir/include/openssl" ]; then
-                    cp -a include "../$version_out_dir" || exit 1
+		        if [ "$arch" == "arm64" ] && [ ! -d "../$version_out_dir/include/openssl" ]; then
+		            cp -a include "../$version_out_dir" || exit 1
+		        fi
+
+		        case $version_out_dir in
+		            ssl_1.1)
+		                build_ssl_1_1 ${version_out_dir} ${qt_arch} ${log_file}
+		                ;;
+		            ssl_3)
+		                build_ssl_3 ${version_out_dir} ${qt_arch} ${log_file}
+		                ;;
+		            *)
+		                echo "Unhandled OpenSSL version $version_out_dir"
+		                exit 1
+		                ;;
+		        esac
+
+		        
+		        popd
                 fi
-
-                case $version_out_dir in
-                    ssl_1.1)
-                        build_ssl_1_1 ${version_out_dir} ${qt_arch} ${log_file}
-                        ;;
-                    ssl_3)
-                        build_ssl_3 ${version_out_dir} ${qt_arch} ${log_file}
-                        ;;
-                    *)
-                        echo "Unhandled OpenSSL version $version_out_dir"
-                        exit 1
-                        ;;
-                esac
-
-                
-                popd
             done
         done
         rm -fr "openssl-$ssl_version"
